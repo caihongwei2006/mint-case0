@@ -21,3 +21,6 @@ B: file_tree_scanner功能：模拟扫描项目文件结构。数据源：从预
 3 sft数据量可以酌情扩大
 4 每一段都应该有CoT，但是消费有点多了--claude的api消耗
 
+附上本地文件树，做记录
+<img width="590" height="736" alt="image" src="https://github.com/user-attachments/assets/a9e45a5b-abf4-4d50-b268-7e6527827a1d" />
+
