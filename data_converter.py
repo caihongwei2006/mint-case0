@@ -15,6 +15,14 @@ def convert_messages_to_tokens_and_weights(messages: list[dict], tokenizer) -> t
     """
     将 messages 格式转换为 token 序列和对应的权重
 
+    使用 Qwen 原生的 ChatML 格式：
+    <|im_start|>system
+    {content}<|im_end|>
+    <|im_start|>user
+    {content}<|im_end|>
+    <|im_start|>assistant
+    {content}<|im_end|>
+
     策略（多轮对话 Q-A-Q-A-Q-A）：
     - system/user 消息：weight=0（不训练）
     - assistant 消息：weight=1（训练）
@@ -32,19 +40,26 @@ def convert_messages_to_tokens_and_weights(messages: list[dict], tokenizer) -> t
         role = msg["role"]
         content = msg["content"]
 
-        # 构建该消息的完整文本
+        # 使用 Qwen ChatML 格式
         if role == "system":
-            msg_text = f"<|system|>\n{content}\n"
-            weight = 0.0
+            msg_text = f"<|im_start|>system\n{content}<|im_end|>\n"
+            tokens = tokenizer.encode(msg_text, add_special_tokens=False)
+            all_tokens.extend(tokens)
+            all_weights.extend([0.0] * len(tokens))
+
         elif role == "user":
-            msg_text = f"<|user|>\n{content}\n"
-            weight = 0.0
+            msg_text = f"<|im_start|>user\n{content}<|im_end|>\n"
+            tokens = tokenizer.encode(msg_text, add_special_tokens=False)
+            all_tokens.extend(tokens)
+            all_weights.extend([0.0] * len(tokens))
+
         elif role == "assistant":
-            msg_text = f"<|assistant|>\n{content}\n"
-            # assistant header 不训练，content 训练
-            # 分开 tokenize
-            header_tokens = tokenizer.encode("<|assistant|>\n", add_special_tokens=False)
-            content_tokens = tokenizer.encode(f"{content}\n", add_special_tokens=False)
+            # assistant: header 不训练，content + <|im_end|> 训练
+            header_text = "<|im_start|>assistant\n"
+            content_text = f"{content}<|im_end|>\n"
+
+            header_tokens = tokenizer.encode(header_text, add_special_tokens=False)
+            content_tokens = tokenizer.encode(content_text, add_special_tokens=False)
 
             all_tokens.extend(header_tokens)
             all_weights.extend([0.0] * len(header_tokens))
@@ -52,24 +67,10 @@ def convert_messages_to_tokens_and_weights(messages: list[dict], tokenizer) -> t
             all_tokens.extend(content_tokens)
             all_weights.extend([1.0] * len(content_tokens))
 
-            continue
-        else:
-            continue
-
-        # 对于 system 和 user，直接 tokenize
-        tokens = tokenizer.encode(msg_text, add_special_tokens=False)
-        all_tokens.extend(tokens)
-        all_weights.extend([weight] * len(tokens))
-
     # 在开头添加 BOS token（如果需要）
     if tokenizer.bos_token_id is not None:
         all_tokens = [tokenizer.bos_token_id] + all_tokens
         all_weights = [0.0] + all_weights
-
-    # 在结尾添加 EOS token
-    if tokenizer.eos_token_id is not None:
-        all_tokens.append(tokenizer.eos_token_id)
-        all_weights.append(1.0)  # EOS 也训练
 
     return all_tokens, all_weights
 
@@ -111,7 +112,15 @@ def convert_progressive_sample_to_tokens_and_weights(
     """
     将累进式样本转换为 token 和权重
 
-    只有最后一个 assistant 消息的 content 被训练（weight=1）
+    使用 Qwen 原生的 ChatML 格式：
+    <|im_start|>system
+    {content}<|im_end|>
+    <|im_start|>user
+    {content}<|im_end|>
+    <|im_start|>assistant
+    {content}<|im_end|>
+
+    只有最后一个 assistant 消息的 content + <|im_end|> 被训练（weight=1）
     其他所有内容 weight=0
     """
     if not messages:
@@ -131,21 +140,24 @@ def convert_progressive_sample_to_tokens_and_weights(
         content = msg["content"]
 
         if role == "system":
-            msg_text = f"<|system|>\n{content}\n"
+            msg_text = f"<|im_start|>system\n{content}<|im_end|>\n"
             tokens = tokenizer.encode(msg_text, add_special_tokens=False)
             all_tokens.extend(tokens)
             all_weights.extend([0.0] * len(tokens))
 
         elif role == "user":
-            msg_text = f"<|user|>\n{content}\n"
+            msg_text = f"<|im_start|>user\n{content}<|im_end|>\n"
             tokens = tokenizer.encode(msg_text, add_special_tokens=False)
             all_tokens.extend(tokens)
             all_weights.extend([0.0] * len(tokens))
 
         elif role == "assistant":
             # header 不训练
-            header_tokens = tokenizer.encode("<|assistant|>\n", add_special_tokens=False)
-            content_tokens = tokenizer.encode(f"{content}\n", add_special_tokens=False)
+            header_text = "<|im_start|>assistant\n"
+            content_text = f"{content}<|im_end|>\n"
+
+            header_tokens = tokenizer.encode(header_text, add_special_tokens=False)
+            content_tokens = tokenizer.encode(content_text, add_special_tokens=False)
 
             all_tokens.extend(header_tokens)
             all_weights.extend([0.0] * len(header_tokens))
@@ -162,12 +174,6 @@ def convert_progressive_sample_to_tokens_and_weights(
     if tokenizer.bos_token_id is not None:
         all_tokens = [tokenizer.bos_token_id] + all_tokens
         all_weights = [0.0] + all_weights
-
-    # 只有最后一个 assistant 样本添加 EOS 并训练
-    if tokenizer.eos_token_id is not None:
-        all_tokens.append(tokenizer.eos_token_id)
-        # 最后一个样本的 EOS 也训练
-        all_weights.append(1.0)
 
     return all_tokens, all_weights
 
@@ -348,6 +354,8 @@ def convert_messages_to_text(messages: list[dict]) -> str:
     """
     将 messages 转换为可读文本格式（用于调试和显示）
 
+    使用 Qwen 原生的 ChatML 格式
+
     Returns:
         格式化的对话文本
     """
@@ -355,7 +363,7 @@ def convert_messages_to_text(messages: list[dict]) -> str:
     for msg in messages:
         role = msg["role"]
         content = msg["content"]
-        lines.append(f"<|{role}|>\n{content}\n")
+        lines.append(f"<|im_start|>{role}\n{content}<|im_end|>\n")
     return "".join(lines)
 
 

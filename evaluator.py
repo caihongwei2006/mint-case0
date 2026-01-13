@@ -225,7 +225,7 @@ class ModelRunner:
     """模型运行器：执行微调后的模型"""
 
     # 有效的工具名
-    VALID_TOOLS = {"ls_file_tree", "ls_top10_lines"}
+    VALID_TOOLS = {"ls_file_tree", "ls_dependencies"}
 
     def __init__(self, checkpoint_path: Optional[str] = None, base_model: str = "Qwen/Qwen3-0.6B"):
         self.checkpoint_path = checkpoint_path
@@ -281,21 +281,26 @@ class ModelRunner:
 
         self._init_client()
 
-        # 构建 prompt
+        # 使用 Qwen ChatML 格式构建 prompt
         prompt_text = ""
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
-            prompt_text += f"<|{role}|>\n{content}\n"
-        prompt_text += "<|assistant|>\n"
+            prompt_text += f"<|im_start|>{role}\n{content}<|im_end|>\n"
+        prompt_text += "<|im_start|>assistant\n"
 
         prompt_tokens = types.ModelInput.from_ints(
             self._tokenizer.encode(prompt_text, add_special_tokens=True)
         )
 
-        # 使用正确的 stop 参数格式
+        # 使用 <|im_end|> 作为 stop token
         eos_id = self._tokenizer.eos_token_id
-        stop_tokens = [eos_id] if eos_id is not None else []
+        im_end_id = self._tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        stop_tokens = []
+        if eos_id is not None:
+            stop_tokens.append(eos_id)
+        if im_end_id:
+            stop_tokens.extend(im_end_id)
 
         result = self._sampling_client.sample(
             prompt=prompt_tokens,
@@ -357,12 +362,12 @@ class ModelEvaluator:
 
         核心检查：
         1. 能否从输出中解析出 <tool_call> 标签
-        2. 工具名是否是 ls_file_tree 或 ls_top10_lines
+        2. 工具名是否是 ls_file_tree 或 ls_dependencies
         """
         if not tool_calls:
             return False, "No tool calls found"
 
-        valid_tools = {"ls_file_tree", "ls_top10_lines"}
+        valid_tools = {"ls_file_tree", "ls_dependencies"}
         parsed_tools = []
 
         for tc in tool_calls:
@@ -440,6 +445,12 @@ class ModelEvaluator:
                 break
 
         # 4. 解析最终输出
+        print(f"\n{'='*60}")
+        print(f"Test {test_id} - Model Output:")
+        print(f"{'='*60}")
+        print(all_output)
+        print(f"{'='*60}\n")
+
         thought, dockerfile, _ = self._parse_model_output(all_output)
 
         # 5. 评估（简化版）
