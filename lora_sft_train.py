@@ -11,7 +11,6 @@ Usage:
 """
 import os
 import argparse
-import subprocess
 from pathlib import Path
 from tqdm import tqdm
 from dotenv import load_dotenv
@@ -56,7 +55,7 @@ def main():
 
     import mint
     from mint import types
-    from data_converter import load_sft_data_for_mint
+    from .data_converter import load_sft_data_for_mint
 
     print("=" * 60)
     print("LoRA SFT Training with MinT")
@@ -172,19 +171,7 @@ def main():
                     print(f"\nSaving checkpoint: {ckpt_name}")
                     ckpt_result = training_client.save_state(name=ckpt_name).result()
                     ckpt_path = ckpt_result.path
-                    print(f"Checkpoint path: {ckpt_path}")
-                    # 发布中间检查点
-                    try:
-                        pub_result = subprocess.run(
-                            ["mint", "checkpoint", "publish", ckpt_path],
-                            capture_output=True,
-                            text=True,
-                            timeout=60
-                        )
-                        if pub_result.returncode == 0:
-                            print(f"✓ Published: {ckpt_name}")
-                    except Exception as e:
-                        print(f"Warning: Could not publish {ckpt_name}: {e}")
+                    print(f"Checkpoint saved: {ckpt_path}")
 
             except Exception as e:
                 print(f"\nError at step {global_step}: {e}")
@@ -208,22 +195,6 @@ def main():
     final_checkpoint = training_client.save_state(name="lora-sft-final").result()
     final_ckpt_path = final_checkpoint.path
     print(f"Checkpoint saved: {final_ckpt_path}")
-
-    # 发布 checkpoint 到云端（持久保存）
-    print(f"\nPublishing checkpoint to cloud for persistence...")
-    try:
-        result = subprocess.run(
-            ["mint", "checkpoint", "publish", final_ckpt_path],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-        if result.returncode == 0:
-            print(f"✓ Checkpoint published successfully: {final_ckpt_path}")
-        else:
-            print(f"Warning: Failed to publish checkpoint: {result.stderr}")
-    except Exception as e:
-        print(f"Warning: Could not publish checkpoint: {e}")
 
     # 保存用于推理的权重
     print("\nSaving weights for inference...")
